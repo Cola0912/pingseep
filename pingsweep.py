@@ -16,11 +16,11 @@ from tqdm import tqdm
 from termcolor import colored
 import os
 import json
-import socket  # ホスト名を取得するため
+import socket
 
 def get_hostname(ip):
     try:
-        return socket.gethostbyaddr(ip)[0]
+        return socket.gethostbyaddr(str(ip))[0]  # IPアドレスを文字列に変換
     except (socket.herror, socket.gaierror):
         return None
 
@@ -43,6 +43,11 @@ def save_current_results(filename, alive_hosts):
     with open(filename, 'w') as file:
         json.dump(list(alive_hosts), file)
 
+# 結果を保存するディレクトリのパスを設定
+results_dir = os.path.expanduser('~/pingsweep/scanresults')
+if not os.path.exists(results_dir):
+    os.makedirs(results_dir)  # ディレクトリが存在しない場合は作成
+
 # 自端末のIPアドレスを取得
 local_ip = get_local_ip_range()
 local_ip = local_ip.split('/')[0] if local_ip else None
@@ -52,7 +57,8 @@ if len(sys.argv) > 1:
 else:
     ip_range = get_local_ip_range()
 
-results_file = f"scan_results_{ip_range.replace('/', '-')}.json"
+# ファイル名を作成し、ディレクトリパスを追加
+results_file = os.path.join(results_dir, f"scan_results_{ip_range.replace('/', '-')}.json")
 
 if ip_range:
     try:
@@ -65,7 +71,7 @@ if ip_range:
             pbar.set_description(f"Scanning {ip}")
             pbar.refresh()
 
-            response = ping(str(ip), count=1, timeout=1)
+            response = ping(str(ip), count=1, timeout=0.1)
             if response.success():
                 alive_hosts.add(str(ip))
             pbar.update(1)
