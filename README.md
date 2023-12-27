@@ -15,12 +15,12 @@ klipper搭載3DプリンタやラズパイのIPアドレスを見失ったとき
 
 特定の範囲を指定してスキャンする場合:
 ```bash
-python3 pingsweep.py 192.168.1.0/24
+sudo python3 pingsweep.py 192.168.1.0/24
 ```
 
 自動でローカルIP範囲を検出してスキャンする場合:
 ```bash
-python3 pingsweep.py
+sudo python3 pingsweep.py
 ```
 
 ## インストール
