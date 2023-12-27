@@ -81,8 +81,10 @@ if ip_range:
         new_hosts = alive_hosts - previous_hosts
         gone_hosts = previous_hosts - alive_hosts
 
+        # 結果を表示する部分を修正
         print("\nFound hosts:")
-        for host in alive_hosts:
+        all_hosts = previous_hosts.union(alive_hosts)  # 以前のホストと現在のホストの合計
+        for host in all_hosts:
             hostname = get_hostname(host)
             display_text = f"{host} ({hostname})" if hostname else host
             color = None
@@ -92,6 +94,8 @@ if ip_range:
                 color = 'green'
             elif host in gone_hosts:
                 color = 'red'
+            elif host in alive_hosts:
+                color = None  # 通常の色
             print(colored(display_text, color) if color else display_text)
 
         save_current_results(results_file, alive_hosts)
