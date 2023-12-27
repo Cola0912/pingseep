@@ -71,7 +71,7 @@ if ip_range:
             pbar.set_description(f"Scanning {ip}")
             pbar.refresh()
 
-            response = ping(str(ip), count=1, timeout=0.1)
+            response = ping(str(ip), count=1, timeout=0.7)
             if response.success():
                 alive_hosts.add(str(ip))
             pbar.update(1)
@@ -81,7 +81,7 @@ if ip_range:
         new_hosts = alive_hosts - previous_hosts
         gone_hosts = previous_hosts - alive_hosts
 
-        print("\nAlive hosts:")
+        print("\nFound hosts:")
         for host in alive_hosts:
             hostname = get_hostname(host)
             display_text = f"{host} ({hostname})" if hostname else host
