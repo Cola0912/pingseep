@@ -81,7 +81,6 @@ if ip_range:
         new_hosts = alive_hosts - previous_hosts
         gone_hosts = previous_hosts - alive_hosts
 
-        # 結果を表示する部分を修正
         print("\nFound hosts:")
         all_hosts = previous_hosts.union(alive_hosts)  # 以前のホストと現在のホストの合計
         for host in all_hosts:
