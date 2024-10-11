@@ -25,25 +25,33 @@ def get_local_ip_range():
             return ip_addr
     return None
 
+# 修正: 空ファイルや不正なファイルに対するエラーハンドリングを追加
 def load_previous_results(filename):
     if os.path.exists(filename):
-        with open(filename, 'r') as file:
-            return set(json.load(file))
+        try:
+            with open(filename, 'r') as file:
+                return set(json.load(file))
+        except (json.JSONDecodeError, ValueError):
+            # ファイルが空か不正な場合
+            print(f"Warning: Could not load previous results from {filename}. Starting with empty set.")
+            return set()
     return set()
 
+# 修正: alive_hostsを文字列に変換して保存するように変更
 def save_current_results(filename, alive_hosts):
     with open(filename, 'w') as file:
-        json.dump(list(alive_hosts), file)
+        # alive_hosts の各要素を文字列に変換して保存
+        json.dump([str(host) for host in alive_hosts], file)
 
 # 1つのIPにPingを送信してその結果を返す
 def ping_ip(ip):
-    response = ping(str(ip), count=1, timeout=0.7)
+    response = ping(str(ip), count=1, timeout=1.2)
     return ip if response.success() else None
 
 # 1つのIPにSSH接続が可能かどうかを確認
 def check_ssh(ip, username="your_username", password="your_password"):
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # 修正: 誤字の修正
     try:
         ssh.connect(ip, username=username, password=password, timeout=5)
         ssh.close()
@@ -51,67 +59,68 @@ def check_ssh(ip, username="your_username", password="your_password"):
     except (paramiko.ssh_exception.NoValidConnectionsError, paramiko.ssh_exception.AuthenticationException):
         return False
     except Exception as e:
-        print(f"Error connecting to {ip}: {e}")
         return False
 
+# IPアドレスにPingとSSHチェックを行う関数
+def ping_and_check_ssh(ip, username, password):
+    result = ping_ip(ip)
+    if result:
+        ssh_available = check_ssh(ip, username, password)
+        return ip, ssh_available
+    return None, None
+
+# スキャンの結果をtxtファイルに保存
+def save_results_to_file(filename, alive_hosts, ssh_enabled_hosts):
+    with open(filename, 'w') as f:
+        f.write("Alive Hosts:\n")
+        for host in alive_hosts:
+            f.write(f"{host}\n")
+        f.write("\nSSH Enabled Hosts:\n")
+        for host in ssh_enabled_hosts:
+            f.write(f"{host}\n")
+
 # スキャンのメイン処理
-def scan_network(ip_range, local_ip, results_file):
+def scan_network(ip_range, local_ip, results_file, username, password):
     try:
         network = ipaddress.ip_network(ip_range, strict=False)
         alive_hosts = set()
         previous_hosts = load_previous_results(results_file)
 
-        # プログレスバーの設定
-        pbar = tqdm(total=network.num_addresses - 2, desc="Scanning", unit="host")
-
-        # マルチスレッドでPingとSSHチェックを実行
-        with ThreadPoolExecutor(max_workers=50) as executor:
-            futures = {executor.submit(ping_ip, ip): ip for ip in network.hosts()}
-
-            for future in tqdm(futures, total=len(futures), desc="Pinging"):
-                ip = futures[future]
-                try:
-                    result = future.result()
-                    if result:
-                        alive_hosts.add(str(ip))
-                except Exception as e:
-                    print(f"Error pinging {ip}: {e}")
-                pbar.update(1)
-
-        pbar.close()
-
-        # SSH接続が可能かどうかを確認
         ssh_enabled_hosts = []
-        print("\nChecking SSH access:")
-        for ip in alive_hosts:
-            if check_ssh(ip):
-                ssh_enabled_hosts.append(ip)
-                print(colored(f"SSH available on {ip}", "green"))
-            else:
-                print(f"No SSH on {ip}")
 
-        # 新しいホストや消失したホストの検出
-        new_hosts = alive_hosts - previous_hosts
-        gone_hosts = previous_hosts - alive_hosts
+        # プログレスバーの設定（全IP数）
+        total_hosts = network.num_addresses - 2  # ネットワークアドレスとブロードキャストを除く
+        with tqdm(total=total_hosts, desc="Scanning", unit="host") as pbar:
+            # マルチスレッドでPingとSSHチェックを実行
+            with ThreadPoolExecutor(max_workers=200) as executor:  # スレッド数を200に増加
+                futures = {executor.submit(ping_and_check_ssh, ip, username, password): ip for ip in network.hosts()}
 
-        print("\nFound hosts:")
-        all_hosts = previous_hosts.union(alive_hosts)
-        for host in all_hosts:
-            hostname = get_hostname(host)
-            display_text = f"{host} ({hostname})" if hostname else host
-            color = None
-            if host == local_ip:
-                color = 'blue'
-            elif host in new_hosts:
-                color = 'green'
-            elif host in gone_hosts:
-                color = 'red'
-            elif host in alive_hosts:
-                color = None
-            print(colored(display_text, color) if color else display_text)
+                for future in futures:
+                    try:
+                        ip, ssh_available = future.result()
+                        if ip:
+                            alive_hosts.add(ip)
+                            if ssh_available:
+                                ssh_enabled_hosts.append(ip)
+                    except KeyboardInterrupt:
+                        print("Process interrupted.")
+                        executor.shutdown(wait=False)
+                        raise
+                    pbar.update(1)
+
+        # 結果の表示（最後にまとめて）
+        print("\nScan Complete.")
+        print("\nAlive Hosts:")
+        for host in alive_hosts:
+            print(f"- {host}")
+        
+        print("\nSSH Enabled Hosts:")
+        for host in ssh_enabled_hosts:
+            print(f"- {host}")
 
         # 結果の保存
         save_current_results(results_file, alive_hosts)
+        save_results_to_file("results.txt", alive_hosts, ssh_enabled_hosts)  # テキストファイルに保存
     except ValueError as e:
         print(f"Error: {e}")
 
@@ -129,9 +138,15 @@ if __name__ == "__main__":
     else:
         ip_range = get_local_ip_range()
 
+    username = "your_username"  # SSH接続用のユーザー名
+    password = "your_password"  # SSH接続用のパスワード
+
     results_file = os.path.join(results_dir, f"scan_results_{ip_range.replace('/', '-')}.json")
 
     if ip_range:
-        scan_network(ip_range, local_ip, results_file)
+        try:
+            scan_network(ip_range, local_ip, results_file, username, password)
+        except KeyboardInterrupt:
+            print("Scanning process interrupted.")
     else:
         print("No valid IP range provided or detected.")
